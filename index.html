@@ -66,7 +66,7 @@
 <div id="app">
   <div id="storeWarn" class="warn" style="display:none">この端末に記録を保存できません。リロードすると当選記録が消えるので、管理画面から記録をこまめに書き出してください。</div>
   <header>
-    <div><div class="ses" id="ses">第1部</div><div class="meta" id="meta"></div></div>
+    <div><div class="ses" id="ses">ガラポン抽選</div><div class="meta" id="meta"></div></div>
     <button class="gear" id="openAdmin">管理</button>
   </header>
   <div class="stage">
@@ -110,47 +110,39 @@ var GRADES = [
 
 function defaultConfig() {
   return {
-    sessions: [{ start: "10:00", end: "14:00" }, { start: "14:00", end: "16:00" }],
-    counts: { toku: [1, 1], g1: [1, 1], g2: [2, 2], g3: [50, 50] },
-    tokuS1From: "12:00",     // 第1部の特等はこの時刻から
-    g2LastMinutes: 30,       // 各部の2等の最後の1本は終了この分前から
+    start: "10:00",
+    end: "16:00",
+    counts: { toku: 2, g1: 2, g2: 4, g3: 100 },
+    tokuRelease: ["12:00", "14:00"], // 特等はこの時刻から1本ずつ抽選対象に入る
     priorPerHour: 150,       // 開始直後に使う想定ペース（回/時）
     windowMin: 30,           // ペースを測る直近の時間（分）
-    floorMin: 10             // 締切直前でも最低この分数ぶんの回数を見込む
+    floorMin: 10             // 終了直前でも最低この分数ぶんの回数を見込む
   };
 }
 
 function toMin(hhmm) { var a = String(hhmm).split(":"); return (+a[0]) * 60 + (+a[1]); }
 function fmtMin(m) { m = Math.floor(m); var h = Math.floor(m / 60), mm = m % 60; return (h < 10 ? "0" : "") + h + ":" + (mm < 10 ? "0" : "") + mm; }
 
-function releaseFor(cfg, g, s, idx, count) {
-  var ses = cfg.sessions[s - 1];
-  var rel = toMin(ses.start);
-  if (g === "toku" && s === 1) rel = Math.max(rel, toMin(cfg.tokuS1From));
-  if (g === "g2" && count >= 2 && idx === count - 1) rel = toMin(ses.end) - cfg.g2LastMinutes;
+function releaseFor(cfg, g, idx) {
+  var rel = toMin(cfg.start);
+  if (g === "toku" && cfg.tokuRelease.length) {
+    var r = cfg.tokuRelease[Math.min(idx, cfg.tokuRelease.length - 1)];
+    rel = Math.max(rel, toMin(r));
+  }
   return rel;
 }
 
 function buildItems(cfg) {
   var items = [], id = 1;
   GRADES.forEach(function (gr) {
-    [1, 2].forEach(function (s) {
-      var n = cfg.counts[gr.k][s - 1];
-      for (var i = 0; i < n; i++) items.push({ id: id++, g: gr.k, s: s, rel: releaseFor(cfg, gr.k, s, i, n), won: false });
-    });
+    for (var i = 0; i < cfg.counts[gr.k]; i++) items.push({ id: id++, g: gr.k, rel: releaseFor(cfg, gr.k, i), won: false });
   });
   return items;
 }
 
 function newState() {
   var cfg = defaultConfig();
-  return { v: 1, config: cfg, items: buildItems(cfg), draws: [], nextTicket: 1, clockOffsetMs: 0 };
-}
-
-function deadlineOf(cfg, item, now) {
-  var s1end = toMin(cfg.sessions[0].end), s2end = toMin(cfg.sessions[1].end);
-  if (item.s === 1 && now < s1end) return s1end;   // 第1部の残りは14:00以降は第2部へ繰り越し
-  return s2end;
+  return { v: 2, config: cfg, items: buildItems(cfg), draws: [], nextTicket: 1, clockOffsetMs: 0 };
 }
 
 function isAvailable(item, now) { return !item.won && now >= item.rel; }
@@ -164,7 +156,7 @@ function paceRate(state, now) {
     if (t < now - w) break;
     cnt++;
   }
-  var el = now - toMin(cfg.sessions[0].start);
+  var el = now - toMin(cfg.start);
   var prior = cfg.priorPerHour / 60;
   var r = (cnt + prior * Math.max(0, w - Math.max(0, el))) / w;
   // 一時的に人が途切れても当たりが連発しないよう、開始からの平均ペースも下支えに使う
@@ -173,14 +165,13 @@ function paceRate(state, now) {
 }
 
 function gradeProbs(state, now) {
-  var cfg = state.config, r = paceRate(state, now);
+  var cfg = state.config, r = paceRate(state, now), end = toMin(cfg.end);
   var p = {}, total = 0;
   GRADES.forEach(function (gr) { p[gr.k] = 0; });
   state.items.forEach(function (it) {
     if (!isAvailable(it, now)) return;
-    var mins = Math.max(deadlineOf(cfg, it, now) - now, cfg.floorMin);
-    var expected = Math.max(1, r * mins);
-    p[it.g] += 1 / expected;
+    var mins = Math.max(end - now, cfg.floorMin);
+    p[it.g] += 1 / Math.max(1, r * mins);
   });
   GRADES.forEach(function (gr) { total += p[gr.k]; });
   if (total > 1) { GRADES.forEach(function (gr) { p[gr.k] /= total; }); total = 1; }
@@ -198,7 +189,7 @@ function drawOnce(state, now, rnd) {
   var item = null;
   if (pick) {
     var cands = state.items.filter(function (it) { return it.g === pick && isAvailable(it, now); });
-    cands.sort(function (a, b) { return (deadlineOf(state.config, a, now) - deadlineOf(state.config, b, now)) || (a.rel - b.rel); });
+    cands.sort(function (a, b) { return a.rel - b.rel; });
     item = cands[0] || null;
     if (!item) pick = null;
   }
@@ -210,25 +201,24 @@ function drawOnce(state, now, rnd) {
 
 function remainingSummary(state, now) {
   var out = {};
-  GRADES.forEach(function (gr) { out[gr.k] = { s1: 0, s2: 0, waiting: 0 }; });
+  GRADES.forEach(function (gr) { out[gr.k] = { left: 0, waiting: 0 }; });
   state.items.forEach(function (it) {
     if (it.won) return;
-    out[it.g]["s" + it.s]++;
+    out[it.g].left++;
     if (now < it.rel) out[it.g].waiting++;
   });
   return out;
 }
 
-function adjustCount(state, g, s, delta) {
+function adjustCount(state, g, delta) {
   var cfg = state.config;
   if (delta > 0) {
-    var ses = cfg.sessions[s - 1];
-    var rel = (g === "toku" && s === 1) ? Math.max(toMin(ses.start), toMin(cfg.tokuS1From)) : toMin(ses.start);
+    var n = state.items.filter(function (it) { return it.g === g; }).length;
     var maxId = state.items.reduce(function (m, it) { return Math.max(m, it.id); }, 0);
-    state.items.push({ id: maxId + 1, g: g, s: s, rel: rel, won: false });
+    state.items.push({ id: maxId + 1, g: g, rel: releaseFor(cfg, g, n), won: false });
   } else {
-    var c = state.items.filter(function (it) { return it.g === g && it.s === s && !it.won; });
-    c.sort(function (a, b) { return a.rel - b.rel; });
+    var c = state.items.filter(function (it) { return it.g === g && !it.won; });
+    c.sort(function (a, b) { return b.rel - a.rel; }); // まだ出せない（遅い時刻の）ものから減らす
     if (c.length) state.items.splice(state.items.indexOf(c[0]), 1);
   }
 }
@@ -238,7 +228,7 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
 </script>
 <script>
 (function(){
-  var KEY = "garapon-state-v1", KEY_BAK = "garapon-state-v1-bak", PINKEY = "garapon-pin";
+  var KEY = "garapon-state-v2", KEY_BAK = "garapon-state-v2-bak", PINKEY = "garapon-pin";
   var slotSize = 30, state, storageOk = true, busy = false, pinBuf = "", adminUnlocked = false, resetArmed = false;
 
   function now(){ var d = new Date(Date.now() + (state.clockOffsetMs||0)); return d.getHours()*60 + d.getMinutes() + d.getSeconds()/60 + d.getMilliseconds()/60000; }
@@ -258,12 +248,12 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
     document.getElementById("storeWarn").style.display = storageOk ? "none" : "block";
   }
   function gradeOf(k){ for (var i=0;i<GRADES.length;i++) if (GRADES[i].k===k) return GRADES[i]; return null; }
-  function sessionLabel(t){ return t < toMin(state.config.sessions[0].end) ? "第1部" : "第2部"; }
+  function sessionLabel(t){ return t < toMin(state.config.start) ? "開始前" : (t >= toMin(state.config.end) ? "終了時刻後" : "開催中"); }
   function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
 
   function renderHeader(){
     var t = now();
-    document.getElementById("ses").textContent = sessionLabel(t) + (state.clockOffsetMs ? "（テスト時刻）" : "");
+    document.getElementById("ses").textContent = "ガラポン抽選" + (state.clockOffsetMs ? "（テスト時刻）" : "");
     document.getElementById("meta").textContent = fmtMin(t) + "　抽選 " + (state.nextTicket - 1) + "回";
   }
 
@@ -325,16 +315,15 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
     var h = '<div class="rowb" style="justify-content:space-between;margin-top:0"><h2 style="margin:0">管理画面</h2><button class="btn" data-act="close">抽選画面に戻る</button></div>';
     h += '<p class="small">' + fmtMin(t) + (state.clockOffsetMs?'（テスト時刻）':'') + '　' + sessionLabel(t) + '　抽選回数 ' + drawsN + '回　当たり ' + winsList.length + '本　直近ペース 約' + Math.round(pr.rate*60) + '回/時</p>';
 
-    h += '<h2>残りの景品</h2><div class="card"><table><tr><th>景品</th><th>第1部</th><th>第2部</th><th>今の確率</th></tr>';
+    h += '<h2>残りの景品</h2><div class="card"><table><tr><th>景品</th><th>残り</th><th>今の確率</th></tr>';
     GRADES.forEach(function(g){
       var r = rem[g.k];
       h += '<tr><td><b style="color:'+g.color+'">'+g.name+'</b><br><span class="small">'+esc(g.prize)+'</span></td>'
-        + '<td><span class="pm"><button data-adj="'+g.k+':1:-1">−</button>'+r.s1+'<button data-adj="'+g.k+':1:1">＋</button></span></td>'
-        + '<td><span class="pm"><button data-adj="'+g.k+':2:-1">−</button>'+r.s2+'<button data-adj="'+g.k+':2:1">＋</button></span></td>'
+        + '<td><span class="pm"><button data-adj="'+g.k+':-1">−</button>'+r.left+'<button data-adj="'+g.k+':1">＋</button></span>'+(r.waiting?'<br><span class="small">うち時間待ち '+r.waiting+'</span>':'')+'</td>'
         + '<td>'+(pr.p[g.k]*100).toFixed(2)+'%</td></tr>';
     });
-    h += '<tr><td>ハズレ</td><td></td><td></td><td>'+((1-pr.total)*100).toFixed(1)+'%</td></tr></table>';
-    h += '<p class="small">第1部の残りは14:00以降、自動で第2部に繰り越されます。時間待ちの景品（第1部の特等は12:00まで、各部の2等1本は最後の30分まで）は、時刻になるまで確率0%です。実際の景品の数と合わないときは −／＋ で直してください。</p></div>';
+    h += '<tr><td>ハズレ</td><td></td><td>'+((1-pr.total)*100).toFixed(1)+'%</td></tr></table>';
+    h += '<p class="small">特等は12:00に1本、14:00にもう1本が抽選対象に入ります（それまでは確率0%）。出なかった分は終了まで持ち越されます。実際の景品の数と合わないときは −／＋ で直してください。</p></div>';
 
     h += '<h2>当選履歴（新しい順）</h2><div class="card">';
     if (!winsList.length) h += '<p class="small">まだ当たりはありません</p>';
@@ -355,7 +344,7 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
     h += '</table><textarea id="distcsv" readonly style="margin-top:10px">'+esc(distCsv(slotSize))+'</textarea>'
       + '<div class="rowb"><button class="btn" data-act="dldist">時間帯別CSVを保存</button><button class="btn ghost" data-act="copydist">コピー</button><span class="small" id="distMsg"></span></div></div>';
 
-    h += '<h2>記録の書き出し</h2><div class="card"><p class="small">全抽選の記録（CSV）です。1回ごとに日時（秒まで）・部・結果が入っています。この端末にも保存され続けます。</p><textarea id="csv" readonly>'+esc(csv())+'</textarea><div class="rowb"><button class="btn" data-act="dlall">全記録CSVを保存</button><button class="btn ghost" data-act="copy">コピー</button><span class="small" id="copyMsg"></span></div></div>';
+    h += '<h2>記録の書き出し</h2><div class="card"><p class="small">全抽選の記録（CSV）です。1回ごとに日時（秒まで）・結果が入っています。この端末にも保存され続けます。</p><textarea id="csv" readonly>'+esc(csv())+'</textarea><div class="rowb"><button class="btn" data-act="dlall">全記録CSVを保存</button><button class="btn ghost" data-act="copy">コピー</button><span class="small" id="copyMsg"></span></div></div>';
 
     h += '<h2>設定</h2><div class="card">'
       + '<div class="rowb"><span>開始直後の想定ペース</span><input type="number" id="prior" value="'+state.config.priorPerHour+'"><span class="small">回/時</span><button class="btn ghost" data-act="prior">保存</button></div>'
@@ -371,9 +360,8 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
   function pad(n){ return (n<10?"0":"")+n; }
   function stamp(){ var d = new Date(Date.now() + (state.clockOffsetMs||0)); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds()); }
   function secOf(d){ return d.ts ? d.ts.slice(11) : fmtMin(d.t)+":00"; }
-  function partOf(t){ return t < toMin(state.config.sessions[0].end) ? "第1部" : "第2部"; }
   function slotRows(size){
-    var start = toMin(state.config.sessions[0].start), end = toMin(state.config.sessions[1].end);
+    var start = toMin(state.config.start), end = toMin(state.config.end);
     var rows = [];
     for (var m = start; m < end; m += size) rows.push({from:m, to:Math.min(m+size,end), n:0, win:0, g:{toku:0,g1:0,g2:0,g3:0}});
     var before = {n:0,win:0}, after = {n:0,win:0};
@@ -406,8 +394,8 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
     try { navigator.clipboard.writeText(text).then(function(){ msg.textContent = "コピーしました"; }, sel); } catch(err){ sel(); }
   }
   function csv(){
-    var lines = ["No.,日時,時刻,部,結果,景品"];
-    state.draws.forEach(function(d){ var g = d.g ? gradeOf(d.g) : null; lines.push(d.n+","+(d.ts||"")+","+secOf(d)+","+partOf(d.t)+","+(g?g.name:"ハズレ")+","+(g?g.prize:"")); });
+    var lines = ["No.,日時,時刻,結果,景品"];
+    state.draws.forEach(function(d){ var g = d.g ? gradeOf(d.g) : null; lines.push(d.n+","+(d.ts||"")+","+secOf(d)+","+(g?g.name:"ハズレ")+","+(g?g.prize:"")); });
     return lines.join("\n");
   }
 
@@ -422,7 +410,7 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
     }
     if (b.dataset.slot){ slotSize = +b.dataset.slot; renderAdmin(); return; }
     if (b.dataset.adj){
-      var p = b.dataset.adj.split(":"); adjustCount(state, p[0], +p[1], +p[2]); save(); renderAdmin(); return;
+      var p = b.dataset.adj.split(":"); adjustCount(state, p[0], +p[1]); save(); renderAdmin(); return;
     }
     var a = b.dataset.act;
     if (a === "close"){ document.getElementById("admin").classList.remove("show"); renderHeader(); }
