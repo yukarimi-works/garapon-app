@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ガラポン">
+<meta name="theme-color" content="#7a1f1f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>ガラポン抽選</title>
+<style>
+  :root{--bg:#fbf6ee;--ink:#2a2420;--sub:#7b6f66;--line:#e6dccd;--card:#fff;--acc:#7a1f1f;--accl:#f4e4e0;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;user-select:none;-webkit-user-select:none}
+  #app{min-height:100%;display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+  header .ses{font-weight:700;font-size:20px}
+  header .meta{color:var(--sub);font-size:15px}
+  .gear{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 12px;font-size:14px;color:var(--sub)}
+  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:24px}
+  .drum{width:min(56vw,320px);height:min(56vw,320px)}
+  .drum.spin #wheel{animation:spin .35s linear infinite;transform-origin:160px 160px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .go{font-size:30px;font-weight:800;padding:22px 56px;border-radius:999px;border:none;background:var(--acc);color:#fff;box-shadow:0 6px 0 #4d1212}
+  .go:active{transform:translateY(4px);box-shadow:0 2px 0 #4d1212}
+  .go:disabled{opacity:.5}
+  .hint{color:var(--sub);font-size:14px}
+  .warn{background:#b5462f;color:#fff;padding:8px 16px;font-size:14px;text-align:center}
+  .overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(30,20,15,.55);z-index:10;padding:20px}
+  .overlay.show{display:flex}
+  .result{background:var(--card);border-radius:24px;padding:36px 28px;text-align:center;width:min(92vw,560px);border-top:14px solid var(--rc,#999)}
+  .result .grade{font-size:72px;font-weight:900;line-height:1.1;color:var(--rc,#555)}
+  .result .prize{font-size:24px;font-weight:700;margin-top:8px}
+  .result .ticket{margin-top:14px;color:var(--sub);font-size:18px}
+  .result .note{margin-top:16px;background:var(--accl);border-radius:12px;padding:12px;font-size:15px;text-align:left}
+  .result button{margin-top:22px;font-size:20px;padding:14px 40px;border-radius:999px;border:none;background:var(--ink);color:#fff;font-weight:700}
+  /* 管理画面 */
+  .admin{position:fixed;inset:0;background:var(--bg);z-index:20;overflow:auto;display:none}
+  .admin.show{display:block}
+  .admin .wrap{max-width:720px;margin:0 auto;padding:16px 16px 60px}
+  .admin h2{font-size:18px;margin:22px 0 8px}
+  .admin .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .admin table{width:100%;border-collapse:collapse;font-size:15px}
+  .admin td,.admin th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:center}
+  .admin td:first-child,.admin th:first-child{text-align:left}
+  .admin th{color:var(--sub);font-weight:500;font-size:13px}
+  .pm{display:inline-flex;align-items:center;gap:6px}
+  .pm button{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-size:18px}
+  .btn{font-size:15px;padding:10px 14px;border-radius:10px;border:1px solid var(--acc);background:var(--acc);color:#fff;font-weight:600}
+  .btn.ghost{background:transparent;color:var(--acc)}
+  .btn.danger{background:transparent;color:#b5462f;border-color:#b5462f}
+  .rowb{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+  .admin input{font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);width:120px}
+  .small{font-size:13px;color:var(--sub)}
+  textarea{width:100%;height:120px;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:8px}
+  .pin{max-width:320px;margin:15vh auto 0;text-align:center}
+  .pin .dots{font-size:32px;letter-spacing:12px;height:44px}
+  .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+  .keys button{font-size:24px;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--card)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="storeWarn" class="warn" style="display:none">この端末に記録を保存できません。リロードすると当選記録が消えるので、管理画面から記録をこまめに書き出してください。</div>
+  <header>
+    <div><div class="ses" id="ses">第1部</div><div class="meta" id="meta"></div></div>
+    <button class="gear" id="openAdmin">管理</button>
+  </header>
+  <div class="stage">
+    <svg class="drum" id="drum" viewBox="0 0 320 320" aria-hidden="true">
+      <rect x="40" y="250" width="240" height="22" rx="6" fill="#5b3a29"/>
+      <rect x="70" y="200" width="16" height="60" fill="#5b3a29"/><rect x="234" y="200" width="16" height="60" fill="#5b3a29"/>
+      <g id="wheel">
+        <polygon points="160,40 252,93 252,199 160,252 68,199 68,93" fill="#a8322d" stroke="#5b1512" stroke-width="8"/>
+        <polygon points="160,78 219,112 219,180 160,214 101,180 101,112" fill="#d4513f"/>
+        <circle cx="160" cy="146" r="14" fill="#f3d27a" stroke="#5b1512" stroke-width="5"/>
+        <line x1="160" y1="146" x2="250" y2="60" stroke="#5b3a29" stroke-width="8" stroke-linecap="round"/>
+      </g>
+    </svg>
+    <button class="go" id="go">ガラポンを回す</button>
+    <div class="hint">台帳のシール3枚（参加店舗2・物販1）を確認してから押してください</div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="result" id="result">
+    <div class="grade" id="rGrade"></div>
+    <div class="prize" id="rPrize"></div>
+    <div class="ticket" id="rTicket"></div>
+    <div class="note" id="rNote" style="display:none"></div>
+    <button id="next">次の方へ</button>
+  </div>
+</div>
+
+<div class="admin" id="admin">
+  <div class="wrap" id="adminBody"></div>
+</div>
+
+<script>
+/* ガラポン抽選エンジン（画面から独立。テストでも同じコードを使う） */
+var GRADES = [
+  { k: "toku", name: "特等", prize: "JTBトラベルギフト 2万円分", color: "#c9a227", mail: true },
+  { k: "g1",   name: "1等",  prize: "島根和牛",                 color: "#c0392b", mail: true },
+  { k: "g2",   name: "2等",  prize: "島根コラボ商品",           color: "#2c6fb7", mail: false },
+  { k: "g3",   name: "3等",  prize: "島根っ子うまい棒",         color: "#2f8f5b", mail: false }
+];
+
+function defaultConfig() {
+  return {
+    sessions: [{ start: "10:00", end: "14:00" }, { start: "14:00", end: "16:00" }],
+    counts: { toku: [1, 1], g1: [1, 1], g2: [2, 2], g3: [50, 50] },
+    tokuS1From: "12:00",     // 第1部の特等はこの時刻から
+    g2LastMinutes: 30,       // 各部の2等の最後の1本は終了この分前から
+    priorPerHour: 150,       // 開始直後に使う想定ペース（回/時）
+    windowMin: 30,           // ペースを測る直近の時間（分）
+    floorMin: 10             // 締切直前でも最低この分数ぶんの回数を見込む
+  };
+}
+
+function toMin(hhmm) { var a = String(hhmm).split(":"); return (+a[0]) * 60 + (+a[1]); }
+function fmtMin(m) { m = Math.floor(m); var h = Math.floor(m / 60), mm = m % 60; return (h < 10 ? "0" : "") + h + ":" + (mm < 10 ? "0" : "") + mm; }
+
+function releaseFor(cfg, g, s, idx, count) {
+  var ses = cfg.sessions[s - 1];
+  var rel = toMin(ses.start);
+  if (g === "toku" && s === 1) rel = Math.max(rel, toMin(cfg.tokuS1From));
+  if (g === "g2" && count >= 2 && idx === count - 1) rel = toMin(ses.end) - cfg.g2LastMinutes;
+  return rel;
+}
+
+function buildItems(cfg) {
+  var items = [], id = 1;
+  GRADES.forEach(function (gr) {
+    [1, 2].forEach(function (s) {
+      var n = cfg.counts[gr.k][s - 1];
+      for (var i = 0; i < n; i++) items.push({ id: id++, g: gr.k, s: s, rel: releaseFor(cfg, gr.k, s, i, n), won: false });
+    });
+  });
+  return items;
+}
+
+function newState() {
+  var cfg = defaultConfig();
+  return { v: 1, config: cfg, items: buildItems(cfg), draws: [], nextTicket: 1, clockOffsetMs: 0 };
+}
+
+function deadlineOf(cfg, item, now) {
+  var s1end = toMin(cfg.sessions[0].end), s2end = toMin(cfg.sessions[1].end);
+  if (item.s === 1 && now < s1end) return s1end;   // 第1部の残りは14:00以降は第2部へ繰り越し
+  return s2end;
+}
+
+function isAvailable(item, now) { return !item.won && now >= item.rel; }
+
+function paceRate(state, now) {
+  var cfg = state.config, w = cfg.windowMin;
+  var cnt = 0;
+  for (var i = state.draws.length - 1; i >= 0; i--) {
+    var t = state.draws[i].t;
+    if (t > now) continue;
+    if (t < now - w) break;
+    cnt++;
+  }
+  var el = now - toMin(cfg.sessions[0].start);
+  var prior = cfg.priorPerHour / 60;
+  var r = (cnt + prior * Math.max(0, w - Math.max(0, el))) / w;
+  // 一時的に人が途切れても当たりが連発しないよう、開始からの平均ペースも下支えに使う
+  var all = (state.draws.length + prior * w) / (Math.max(0, el) + w);
+  return Math.max(r, 0.6 * all, 0.05);
+}
+
+function gradeProbs(state, now) {
+  var cfg = state.config, r = paceRate(state, now);
+  var p = {}, total = 0;
+  GRADES.forEach(function (gr) { p[gr.k] = 0; });
+  state.items.forEach(function (it) {
+    if (!isAvailable(it, now)) return;
+    var mins = Math.max(deadlineOf(cfg, it, now) - now, cfg.floorMin);
+    var expected = Math.max(1, r * mins);
+    p[it.g] += 1 / expected;
+  });
+  GRADES.forEach(function (gr) { total += p[gr.k]; });
+  if (total > 1) { GRADES.forEach(function (gr) { p[gr.k] /= total; }); total = 1; }
+  return { p: p, total: total, rate: r };
+}
+
+/* 1回抽選して state を更新。結果 {ticket, g|null, item} を返す */
+function drawOnce(state, now, rnd) {
+  var pr = gradeProbs(state, now);
+  var u = rnd(), acc = 0, pick = null;
+  for (var i = 0; i < GRADES.length; i++) {
+    acc += pr.p[GRADES[i].k];
+    if (u < acc) { pick = GRADES[i].k; break; }
+  }
+  var item = null;
+  if (pick) {
+    var cands = state.items.filter(function (it) { return it.g === pick && isAvailable(it, now); });
+    cands.sort(function (a, b) { return (deadlineOf(state.config, a, now) - deadlineOf(state.config, b, now)) || (a.rel - b.rel); });
+    item = cands[0] || null;
+    if (!item) pick = null;
+  }
+  var ticket = state.nextTicket++;
+  if (item) { item.won = true; item.wonAt = now; item.ticket = ticket; }
+  state.draws.push({ n: ticket, t: now, g: pick });
+  return { ticket: ticket, g: pick, item: item };
+}
+
+function remainingSummary(state, now) {
+  var out = {};
+  GRADES.forEach(function (gr) { out[gr.k] = { s1: 0, s2: 0, waiting: 0 }; });
+  state.items.forEach(function (it) {
+    if (it.won) return;
+    out[it.g]["s" + it.s]++;
+    if (now < it.rel) out[it.g].waiting++;
+  });
+  return out;
+}
+
+function adjustCount(state, g, s, delta) {
+  var cfg = state.config;
+  if (delta > 0) {
+    var ses = cfg.sessions[s - 1];
+    var rel = (g === "toku" && s === 1) ? Math.max(toMin(ses.start), toMin(cfg.tokuS1From)) : toMin(ses.start);
+    var maxId = state.items.reduce(function (m, it) { return Math.max(m, it.id); }, 0);
+    state.items.push({ id: maxId + 1, g: g, s: s, rel: rel, won: false });
+  } else {
+    var c = state.items.filter(function (it) { return it.g === g && it.s === s && !it.won; });
+    c.sort(function (a, b) { return a.rel - b.rel; });
+    if (c.length) state.items.splice(state.items.indexOf(c[0]), 1);
+  }
+}
+
+if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultConfig: defaultConfig, newState: newState, buildItems: buildItems, drawOnce: drawOnce, gradeProbs: gradeProbs, toMin: toMin, fmtMin: fmtMin, remainingSummary: remainingSummary, adjustCount: adjustCount };
+
+</script>
+<script>
+(function(){
+  var KEY = "garapon-state-v1", KEY_BAK = "garapon-state-v1-bak", PINKEY = "garapon-pin";
+  var slotSize = 30, state, storageOk = true, busy = false, pinBuf = "", adminUnlocked = false, resetArmed = false;
+
+  function now(){ var d = new Date(Date.now() + (state.clockOffsetMs||0)); return d.getHours()*60 + d.getMinutes() + d.getSeconds()/60 + d.getMilliseconds()/60000; }
+  function pin(){ try { return localStorage.getItem(PINKEY) || "1234"; } catch(e){ return "1234"; } }
+  function load(){
+    try {
+      var s = localStorage.getItem(KEY) || localStorage.getItem(KEY_BAK);
+      state = s ? JSON.parse(s) : newState();
+      if (!state || !state.items) state = newState();
+      localStorage.setItem("garapon-test", "1"); localStorage.removeItem("garapon-test");
+    } catch(e){ storageOk = false; state = state || newState(); }
+    document.getElementById("storeWarn").style.display = storageOk ? "none" : "block";
+  }
+  function save(){
+    try { var j = JSON.stringify(state); localStorage.setItem(KEY, j); localStorage.setItem(KEY_BAK, j); storageOk = true; }
+    catch(e){ storageOk = false; }
+    document.getElementById("storeWarn").style.display = storageOk ? "none" : "block";
+  }
+  function gradeOf(k){ for (var i=0;i<GRADES.length;i++) if (GRADES[i].k===k) return GRADES[i]; return null; }
+  function sessionLabel(t){ return t < toMin(state.config.sessions[0].end) ? "第1部" : "第2部"; }
+  function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+
+  function renderHeader(){
+    var t = now();
+    document.getElementById("ses").textContent = sessionLabel(t) + (state.clockOffsetMs ? "（テスト時刻）" : "");
+    document.getElementById("meta").textContent = fmtMin(t) + "　抽選 " + (state.nextTicket - 1) + "回";
+  }
+
+  function wakeLock(){ try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function(){}); } catch(e){} }
+
+  document.getElementById("go").addEventListener("click", function(){
+    if (busy) return; busy = true; wakeLock();
+    var btn = this; btn.disabled = true;
+    var res = drawOnce(state, now(), Math.random);
+    state.draws[state.draws.length-1].ts = stamp();
+    save();
+    document.getElementById("drum").classList.add("spin");
+    setTimeout(function(){
+      document.getElementById("drum").classList.remove("spin");
+      showResult(res);
+    }, 1800);
+  });
+
+  function showResult(res){
+    var g = res.g ? gradeOf(res.g) : null;
+    var box = document.getElementById("result");
+    box.style.setProperty("--rc", g ? g.color : "#9a9087");
+    document.getElementById("rGrade").textContent = g ? g.name : "ハズレ";
+    document.getElementById("rPrize").textContent = g ? g.prize : "またのご参加をお待ちしています";
+    document.getElementById("rTicket").textContent = "";
+    var note = document.getElementById("rNote");
+    if (g && g.mail){
+      note.style.display = "block";
+      note.innerHTML = "後日郵送の景品です。<br>・主催者のスマホで連絡先フォームのQRコードを見せ、この場で入力してもらう<br>・未成年の場合は保護者に入力してもらう";
+    } else if (g){
+      note.style.display = "block"; note.textContent = "その場で景品をお渡しください。";
+    } else { note.style.display = "none"; }
+    document.getElementById("overlay").classList.add("show");
+  }
+
+  document.getElementById("next").addEventListener("click", function(){
+    document.getElementById("overlay").classList.remove("show");
+    document.getElementById("go").disabled = false; busy = false; renderHeader();
+  });
+
+  /* ===== 管理画面 ===== */
+  document.getElementById("openAdmin").addEventListener("click", function(){
+    adminUnlocked = false; pinBuf = ""; resetArmed = false;
+    document.getElementById("admin").classList.add("show"); renderAdmin();
+  });
+
+  function renderPin(){
+    var keys = ["1","2","3","4","5","6","7","8","9","戻る","0","消す"];
+    return '<div class="pin"><h2>管理画面のPIN</h2><div class="dots">' + "●".repeat(pinBuf.length) + '</div>'
+      + '<div class="keys">' + keys.map(function(k){ return '<button data-key="'+k+'">'+k+'</button>'; }).join("") + '</div>'
+      + '<p class="small">初期PINは 1234（管理画面で変更できます）</p></div>';
+  }
+
+  function renderAdmin(){
+    var body = document.getElementById("adminBody");
+    if (!adminUnlocked){ body.innerHTML = renderPin(); return; }
+    var t = now(), pr = gradeProbs(state, t), rem = remainingSummary(state, t);
+    var drawsN = state.draws.length, winsList = state.draws.filter(function(d){return d.g;});
+    var h = '<div class="rowb" style="justify-content:space-between;margin-top:0"><h2 style="margin:0">管理画面</h2><button class="btn" data-act="close">抽選画面に戻る</button></div>';
+    h += '<p class="small">' + fmtMin(t) + (state.clockOffsetMs?'（テスト時刻）':'') + '　' + sessionLabel(t) + '　抽選回数 ' + drawsN + '回　当たり ' + winsList.length + '本　直近ペース 約' + Math.round(pr.rate*60) + '回/時</p>';
+
+    h += '<h2>残りの景品</h2><div class="card"><table><tr><th>景品</th><th>第1部</th><th>第2部</th><th>今の確率</th></tr>';
+    GRADES.forEach(function(g){
+      var r = rem[g.k];
+      h += '<tr><td><b style="color:'+g.color+'">'+g.name+'</b><br><span class="small">'+esc(g.prize)+'</span></td>'
+        + '<td><span class="pm"><button data-adj="'+g.k+':1:-1">−</button>'+r.s1+'<button data-adj="'+g.k+':1:1">＋</button></span></td>'
+        + '<td><span class="pm"><button data-adj="'+g.k+':2:-1">−</button>'+r.s2+'<button data-adj="'+g.k+':2:1">＋</button></span></td>'
+        + '<td>'+(pr.p[g.k]*100).toFixed(2)+'%</td></tr>';
+    });
+    h += '<tr><td>ハズレ</td><td></td><td></td><td>'+((1-pr.total)*100).toFixed(1)+'%</td></tr></table>';
+    h += '<p class="small">第1部の残りは14:00以降、自動で第2部に繰り越されます。時間待ちの景品（第1部の特等は12:00まで、各部の2等1本は最後の30分まで）は、時刻になるまで確率0%です。実際の景品の数と合わないときは −／＋ で直してください。</p></div>';
+
+    h += '<h2>当選履歴（新しい順）</h2><div class="card">';
+    if (!winsList.length) h += '<p class="small">まだ当たりはありません</p>';
+    else { h += '<table><tr><th>No.</th><th>時刻</th><th>景品</th></tr>';
+      winsList.slice().reverse().forEach(function(d){ var g = gradeOf(d.g); h += '<tr><td>'+d.n+'</td><td>'+fmtMin(d.t)+'</td><td style="color:'+g.color+'">'+g.name+'</td></tr>'; });
+      h += '</table>'; }
+    h += '<div class="rowb"><button class="btn ghost" data-act="undo">直前の抽選を取り消す</button><span class="small">押し間違えたときだけ使う</span></div></div>';
+
+    var s = slotRows(slotSize), maxN = 1;
+    s.rows.forEach(function(r){ if (r.n > maxN) maxN = r.n; });
+    h += '<h2>時間帯ごとの抽選回数</h2><div class="card">'
+      + '<div class="rowb" style="margin-top:0">' + [15,30,60].map(function(m){ return '<button class="btn'+(m===slotSize?'':' ghost')+'" data-slot="'+m+'">'+m+'分ごと</button>'; }).join("") + '</div>'
+      + '<table><tr><th>時間帯</th><th style="width:45%"></th><th>回数</th><th>当たり</th></tr>';
+    s.rows.forEach(function(r){
+      h += '<tr><td>'+fmtMin(r.from)+'〜</td><td style="text-align:left"><div style="height:12px;border-radius:3px;background:var(--acc);width:'+Math.round(r.n/maxN*100)+'%"></div></td><td>'+r.n+'</td><td>'+r.win+'</td></tr>';
+    });
+    if (s.before.n || s.after.n) h += '<tr><td colspan="4" class="small" style="text-align:left">時間外：開始前 '+s.before.n+'回／終了後 '+s.after.n+'回</td></tr>';
+    h += '</table><textarea id="distcsv" readonly style="margin-top:10px">'+esc(distCsv(slotSize))+'</textarea>'
+      + '<div class="rowb"><button class="btn" data-act="dldist">時間帯別CSVを保存</button><button class="btn ghost" data-act="copydist">コピー</button><span class="small" id="distMsg"></span></div></div>';
+
+    h += '<h2>記録の書き出し</h2><div class="card"><p class="small">全抽選の記録（CSV）です。1回ごとに日時（秒まで）・部・結果が入っています。この端末にも保存され続けます。</p><textarea id="csv" readonly>'+esc(csv())+'</textarea><div class="rowb"><button class="btn" data-act="dlall">全記録CSVを保存</button><button class="btn ghost" data-act="copy">コピー</button><span class="small" id="copyMsg"></span></div></div>';
+
+    h += '<h2>設定</h2><div class="card">'
+      + '<div class="rowb"><span>開始直後の想定ペース</span><input type="number" id="prior" value="'+state.config.priorPerHour+'"><span class="small">回/時</span><button class="btn ghost" data-act="prior">保存</button></div>'
+      + '<p class="small">開始30分までは、この想定と実際の回数を混ぜて確率を決めます。その後は直近30分の実績だけを使います。</p>'
+      + '<div class="rowb"><span>テスト用の時刻</span><input type="time" id="tt"><button class="btn ghost" data-act="settime">この時刻にする</button><button class="btn ghost" data-act="realtime">実際の時刻に戻す</button></div>'
+      + '<p class="small">本番前の動作確認用です。当日は必ず「実際の時刻に戻す」を押してください。</p>'
+      + '<div class="rowb"><span>PINを変更</span><input type="number" id="newpin" placeholder="4桁"><button class="btn ghost" data-act="pin">変更</button></div>'
+      + '<div class="rowb"><button class="btn danger" data-act="reset">'+(resetArmed?'もう一度押すと全記録を消して初期状態に戻します':'全記録をリセット（本番前のテスト後に使う）')+'</button></div>'
+      + '</div>';
+    body.innerHTML = h;
+  }
+
+  function pad(n){ return (n<10?"0":"")+n; }
+  function stamp(){ var d = new Date(Date.now() + (state.clockOffsetMs||0)); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+" "+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds()); }
+  function secOf(d){ return d.ts ? d.ts.slice(11) : fmtMin(d.t)+":00"; }
+  function partOf(t){ return t < toMin(state.config.sessions[0].end) ? "第1部" : "第2部"; }
+  function slotRows(size){
+    var start = toMin(state.config.sessions[0].start), end = toMin(state.config.sessions[1].end);
+    var rows = [];
+    for (var m = start; m < end; m += size) rows.push({from:m, to:Math.min(m+size,end), n:0, win:0, g:{toku:0,g1:0,g2:0,g3:0}});
+    var before = {n:0,win:0}, after = {n:0,win:0};
+    state.draws.forEach(function(d){
+      var r = null;
+      if (d.t < start) r = before; else if (d.t >= end) r = after; else r = rows[Math.floor((d.t - start)/size)];
+      r.n++; if (d.g){ r.win++; if (r.g) r.g[d.g]++; }
+    });
+    return {rows:rows, before:before, after:after};
+  }
+  function distCsv(size){
+    var s = slotRows(size), lines = ["時間帯,抽選回数,当たり,特等,1等,2等,3等,ハズレ"];
+    if (s.before.n) lines.push("開始前,"+s.before.n+","+s.before.win+",,,,,"+(s.before.n-s.before.win));
+    s.rows.forEach(function(r){ lines.push(fmtMin(r.from)+"-"+fmtMin(r.to)+","+r.n+","+r.win+","+r.g.toku+","+r.g.g1+","+r.g.g2+","+r.g.g3+","+(r.n-r.win)); });
+    if (s.after.n) lines.push("終了後,"+s.after.n+","+s.after.win+",,,,,"+(s.after.n-s.after.win));
+    return lines.join("\n");
+  }
+  function download(name, text, msgId){
+    var msg = document.getElementById(msgId);
+    try {
+      var blob = new Blob(["\ufeff"+text], {type:"text/csv;charset=utf-8"});
+      var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      if (msg) msg.textContent = "保存しました（保存できない環境ではコピーを使ってください）";
+    } catch(e){ if (msg) msg.textContent = "この環境では保存できません。コピーを使ってください"; }
+  }
+  function copyText(text, msgId, taId){
+    var msg = document.getElementById(msgId);
+    function sel(){ var ta = document.getElementById(taId); if (ta){ ta.focus(); ta.select(); } msg.textContent = "選択したので長押しでコピーしてください"; }
+    try { navigator.clipboard.writeText(text).then(function(){ msg.textContent = "コピーしました"; }, sel); } catch(err){ sel(); }
+  }
+  function csv(){
+    var lines = ["No.,日時,時刻,部,結果,景品"];
+    state.draws.forEach(function(d){ var g = d.g ? gradeOf(d.g) : null; lines.push(d.n+","+(d.ts||"")+","+secOf(d)+","+partOf(d.t)+","+(g?g.name:"ハズレ")+","+(g?g.prize:"")); });
+    return lines.join("\n");
+  }
+
+  document.getElementById("adminBody").addEventListener("click", function(e){
+    var b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.key){
+      var k = b.dataset.key;
+      if (k === "戻る"){ document.getElementById("admin").classList.remove("show"); return; }
+      if (k === "消す") pinBuf = pinBuf.slice(0,-1); else if (pinBuf.length < 8) pinBuf += k;
+      if (pinBuf === pin()){ adminUnlocked = true; pinBuf = ""; }
+      renderAdmin(); return;
+    }
+    if (b.dataset.slot){ slotSize = +b.dataset.slot; renderAdmin(); return; }
+    if (b.dataset.adj){
+      var p = b.dataset.adj.split(":"); adjustCount(state, p[0], +p[1], +p[2]); save(); renderAdmin(); return;
+    }
+    var a = b.dataset.act;
+    if (a === "close"){ document.getElementById("admin").classList.remove("show"); renderHeader(); }
+    else if (a === "undo"){
+      var d = state.draws.pop();
+      if (d){ if (d.g){ var it = state.items.filter(function(x){ return x.ticket === d.n; })[0]; if (it){ it.won = false; delete it.wonAt; delete it.ticket; } } state.nextTicket = d.n; save(); }
+      renderAdmin();
+    }
+    else if (a === "copy"){ copyText(csv(), "copyMsg", "csv"); }
+    else if (a === "copydist"){ copyText(distCsv(slotSize), "distMsg", "distcsv"); }
+    else if (a === "dlall"){ download("garapon_全記録_"+stamp().slice(0,10)+".csv", csv(), "copyMsg"); }
+    else if (a === "dldist"){ download("garapon_時間帯別_"+slotSize+"分_"+stamp().slice(0,10)+".csv", distCsv(slotSize), "distMsg"); }
+    else if (a === "prior"){ var v = +document.getElementById("prior").value; if (v > 0){ state.config.priorPerHour = v; save(); } renderAdmin(); }
+    else if (a === "settime"){
+      var tv = document.getElementById("tt").value; if (!tv) return;
+      var d0 = new Date(); var target = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), +tv.split(":")[0], +tv.split(":")[1]);
+      state.clockOffsetMs = target - d0; save(); renderAdmin(); renderHeader();
+    }
+    else if (a === "realtime"){ state.clockOffsetMs = 0; save(); renderAdmin(); renderHeader(); }
+    else if (a === "pin"){ var np = document.getElementById("newpin").value; if (/^\d{4,8}$/.test(np)){ try { localStorage.setItem(PINKEY, np); } catch(err){} } renderAdmin(); }
+    else if (a === "reset"){
+      if (!resetArmed){ resetArmed = true; renderAdmin(); return; }
+      resetArmed = false; var off = state.clockOffsetMs; state = newState(); state.clockOffsetMs = off; save(); renderAdmin(); renderHeader();
+    }
+  });
+
+  load(); renderHeader(); setInterval(renderHeader, 15000);
+  try { if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(function(){}); } catch(e){}
+})();
+</script>
+</body>
+</html>
