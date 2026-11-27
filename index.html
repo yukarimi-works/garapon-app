@@ -113,7 +113,7 @@ function defaultConfig() {
     start: "10:00",
     end: "16:20",
     counts: { toku: 2, g1: 2, g2: 4, g3: 100 },
-    tokuRelease: ["12:00", "14:00"], // 特等はこの時刻から1本ずつ抽選対象に入る
+    tokuRelease: ["10:00", "14:00"], // 特等はこの時刻から1本ずつ抽選対象に入る（1本目は開始から、2本目は14:00から）
     priorPerHour: 150,       // 開始直後に使う想定ペース（回/時）
     warmupMin: 30,           // 開始直後この分数は買い物などで人が少ないので、実績を使わず想定ペースで計算
     windowMin: 30,           // ペースを測る直近の時間（分）
@@ -326,7 +326,7 @@ if (typeof module !== "undefined") module.exports = { GRADES: GRADES, defaultCon
         + '<td>'+(pr.p[g.k]*100).toFixed(2)+'%</td></tr>';
     });
     h += '<tr><td>ハズレ</td><td></td><td>'+((1-pr.total)*100).toFixed(1)+'%</td></tr></table>';
-    h += '<p class="small">特等は12:00に1本、14:00にもう1本が抽選対象に入ります（それまでは確率0%）。出なかった分は終了まで持ち越されます。実際の景品の数と合わないときは −／＋ で直してください。</p></div>';
+    h += '<p class="small">特等は1本目が開始から、2本目は14:00から抽選対象に入ります（2本目は14:00まで確率0%）。出なかった分は終了まで持ち越されます。実際の景品の数と合わないときは −／＋ で直してください。</p></div>';
 
     h += '<h2>当選履歴（新しい順）</h2><div class="card">';
     if (!winsList.length) h += '<p class="small">まだ当たりはありません</p>';
